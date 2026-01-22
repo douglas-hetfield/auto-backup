@@ -64,9 +64,7 @@ setup_directories() {
 
 # Lista todos os bancos de dados
 list_databases() {
-    log "INFO" "Listando bancos de dados disponíveis..."
-    
-    local dbs=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -h "$MYSQL_HOST" -e "SHOW DATABASES;" | grep -Ev "Database|${EXCLUDE_DBS// /|}")
+    local dbs=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -h "$MYSQL_HOST" -e "SHOW DATABASES;" 2>/dev/null | grep -Ev "Database|${EXCLUDE_DBS// /|}")
     
     if [ $? -ne 0 ]; then
         log "ERROR" "Falha ao conectar no MySQL ou listar bancos de dados"
