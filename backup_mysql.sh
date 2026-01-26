@@ -32,7 +32,7 @@ FAILED_COUNT=0
 FAILED_DBS=""
 
 # Bancos de dados do sistema a serem ignorados
-EXCLUDE_DBS="information_schema performance_schema mysql sys"
+EXCLUDE_DBS="information_schema performance_schema mysql sys phpmyadmin"
 
 #==============================================================================
 # FUNÇÕES
