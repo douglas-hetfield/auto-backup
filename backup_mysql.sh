@@ -78,8 +78,8 @@ list_databases() {
 # Realiza backup de um banco específico
 backup_database() {
     local db=$1
-    local sql_file="${BACKUP_DIR}/${db}_${DATE}.sql"
-    local zip_file="${BACKUP_DIR}/${db}_${DATE}.zip"
+    local sql_file="${BACKUP_DIR}/${db}_temp.sql"
+    local zip_file="${BACKUP_DIR}/backup_${db}.zip"
     
     log "INFO" "Iniciando backup do banco: $db"
     
@@ -135,7 +135,7 @@ upload_to_gdrive() {
     fi
     
     # Cria pasta no Google Drive se não existir
-    local remote_path="${GDRIVE_REMOTE}:${GDRIVE_FOLDER}/${DATE_FOLDER}"
+    local remote_path="${GDRIVE_REMOTE}:${GDRIVE_FOLDER}"
     
     # Upload de todos os arquivos .zip
     local files_uploaded=0
@@ -166,17 +166,19 @@ upload_to_gdrive() {
 
 # Limpeza de backups antigos (local)
 cleanup_old_backups() {
-    local days=${RETENTION_DAYS:-15}
-    log "INFO" "Removendo backups locais com mais de $days dias..."
+    log "INFO" "Modo de sobrescrita ativado - limpeza automática desabilitada"
+    # Não é necessário limpar arquivos antigos pois sempre sobrescreve o mesmo arquivo
+    #local days=${RETENTION_DAYS:-15}
+    #log "INFO" "Removendo backups locais com mais de $days dias..."
     
-    local count=$(find "$BACKUP_DIR" -type f -name "*.zip" -mtime +$days | wc -l)
+    #local count=$(find "$BACKUP_DIR" -type f -name "*.zip" -mtime +$days | wc -l)
     
-    if [ $count -gt 0 ]; then
-        find "$BACKUP_DIR" -type f -name "*.zip" -mtime +$days -delete
-        log "SUCCESS" "Removidos $count arquivo(s) antigo(s)"
-    else
-        log "INFO" "Nenhum arquivo antigo para remover"
-    fi
+    #if [ $count -gt 0 ]; then
+    #    find "$BACKUP_DIR" -type f -name "*.zip" -mtime +$days -delete
+    #    log "SUCCESS" "Removidos $count arquivo(s) antigo(s)"
+    #else
+    #    log "INFO" "Nenhum arquivo antigo para remover"
+    #fi
 }
 
 # Limpeza de logs antigos
