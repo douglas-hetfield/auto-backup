@@ -64,7 +64,7 @@ setup_directories() {
 
 # Lista todos os bancos de dados
 list_databases() {
-    local dbs=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -h "$MYSQL_HOST" -e "SHOW DATABASES;" 2>/dev/null | grep -Ev "Database|${EXCLUDE_DBS// /|}")
+    local dbs=$(mysql -u "$DB_USER" -p"$DB_PASSWORD" -h "$DB_HOST" -e "SHOW DATABASES;" 2>/dev/null | grep -Ev "Database|${EXCLUDE_DBS// /|}")
     
     if [ $? -ne 0 ]; then
         log "ERROR" "Falha ao conectar no MySQL ou listar bancos de dados"
@@ -84,7 +84,7 @@ backup_database() {
     log "INFO" "Iniciando backup do banco: $db"
     
     # Realiza o dump
-    mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -h "$MYSQL_HOST" \
+    mysqldump -u "$DB_USER" -p"$DB_PASSWORD" -h "$DB_HOST" \
         --single-transaction \
         --routines \
         --triggers \

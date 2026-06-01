@@ -197,7 +197,7 @@ if [[ "$ENABLE_GDRIVE_BOOL" == "true" ]]; then
     echo "   cd $BASE_DIR && ./backup_mysql.sh"
     echo ""
     echo "4. Configure o cronjob (opcional):"
-    echo "   sudo crontab -e"
+    echo "   crontab -e"
     echo "   Adicione: 0 3 * * * $BASE_DIR/backup_mysql.sh"
     echo ""
 else
@@ -206,7 +206,7 @@ else
     echo "   cd $BASE_DIR && ./backup_mysql.sh"
     echo ""
     log_info "Para configurar cronjob:"
-    echo "   sudo crontab -e"
+    echo "   crontab -e"
     echo "   Adicione: 0 3 * * * $BASE_DIR/backup_mysql.sh"
     echo ""
 fi
