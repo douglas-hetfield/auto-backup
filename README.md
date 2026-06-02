@@ -1,300 +1,313 @@
-🗄️ Sistema de Backup Automatizado MySQL → Google Drive
-Sistema completo e robusto para backup automático de bancos de dados MySQL com sincronização no Google Drive.
+# Sistema de Backup Automatizado SQL Server (Docker) → Google Drive
 
-📋 Índice
+Sistema para backup automático de bancos SQL Server hospedados em containers Docker, com upload dos arquivos `.bak` para uma pasta única no Google Drive via rclone.
 
-Recursos
-Pré-requisitos
-Instalação
-Configuração
-Uso
-Monitoramento
-Solução de Problemas
+Contexto-alvo: **Proxmox + Alpine Linux + Docker** (SQL Server 2022 Express).
 
+---
 
-✨ Recursos
+## Índice
 
-✅ Backup automático de todos os bancos MySQL
-✅ Exclusão automática de bancos de sistema
-✅ Compactação em ZIP
-✅ Upload automático para Google Drive
-✅ Sistema de logs detalhado
-✅ Tratamento individual de erros
-✅ Limpeza automática de backups antigos
-✅ Execução via cronjob
-✅ Modo manual e automático
-✅ Segurança com arquivo .env
+- [Recursos](#recursos)
+- [Pré-requisitos](#pré-requisitos)
+- [Instalação](#instalação)
+- [Configuração (.env)](#configuração-env)
+- [Uso](#uso)
+- [Como funciona](#como-funciona)
+- [Monitoramento](#monitoramento)
+- [Solução de Problemas](#solução-de-problemas)
+- [Estrutura de Arquivos](#estrutura-de-arquivos)
 
+---
 
-🔧 Pré-requisitos
-Pacotes necessários
-bash# Atualizar sistema
-sudo apt update && sudo apt upgrade -y
+## Recursos
 
-# Instalar dependências
-sudo apt install -y mysql-client zip unzip curl
-Verificar instalação do MySQL Client
-bashmysql --version
-# Deve retornar algo como: mysql  Ver 8.0.x
+- Varre todos os containers SQL Server listados no `.env`
+- Backup de todos os bancos de usuário (exclui `master`, `tempdb`, `model`, `msdb`)
+- Suporte a containers **compartilhados** (uma senha) e **dedicados** (outra senha)
+- Arquivos gerados com nome fixo `backup_<nome_do_banco>.bak` (sobrescritos a cada execução — mantém apenas o backup mais recente)
+- Upload **flat** para uma única pasta do Google Drive (configurada via `root_folder_id` do rclone)
+- Logs detalhados por execução
+- Limpeza automática de logs antigos
+- Validação prévia via `test_backup.sh`
 
-📦 Instalação
-1. Criar estrutura de diretórios
-bash# Criar diretórios principais
-sudo mkdir -p /var/www/backups/{base_dados,logs,config}
+---
 
-# Navegar para o diretório
-cd /var/www/backups
-2. Criar os arquivos
-Criar o script principal:
-bashsudo nano backup_mysql.sh
-Cole o conteúdo do script backup_mysql.sh e salve (Ctrl+X, Y, Enter).
-Criar arquivo de configuração:
-bashsudo nano config/.env
-Cole o conteúdo do .env.example, ajuste as credenciais e salve.
-3. Definir permissões
-bash# Tornar script executável
-sudo chmod +x backup_mysql.sh
+## Pré-requisitos
 
-# Proteger arquivo de configuração
-sudo chmod 600 config/.env
+- Alpine Linux (ou compatível) com Docker em execução
+- Containers SQL Server já criados com:
+  - `sqlcmd` em `/opt/mssql-tools18/bin/sqlcmd`
+  - Volume mapeando `/var/opt/mssql/backup` (dentro do container) para um diretório no host
+  - Arquivos de senha do SA acessíveis no host (`SECRET_SHARED` / `SECRET_DEDICATED`)
+- `bash`, `curl` e `rclone` no host
 
-# Definir proprietário (ajuste para seu usuário)
-sudo chown -R www-data:www-data /var/www/backups
+```sh
+apk add --no-cache bash curl rclone
+```
 
-⚙️ Configuração
-1. Configurar credenciais MySQL
-Edite o arquivo config/.env:
-bashsudo nano config/.env
-envMYSQL_USER=seu_usuario
-MYSQL_PASSWORD=sua_senha_segura
-MYSQL_HOST=localhost
-2. Configurar Google Drive (rclone)
-Instalação do rclone
-bash# Instalar rclone
-curl https://rclone.org/install.sh | sudo bash
+Caso o pacote `rclone` do Alpine seja muito antigo, use o instalador oficial:
+```sh
+curl https://rclone.org/install.sh | sh
+```
 
-# Verificar instalação
-rclone version
-Configurar remote do Google Drive
-bash# Iniciar configuração
+---
+
+## Instalação
+
+### 1. Clonar e posicionar os scripts
+```sh
+cd /opt
+git clone <repo> auto-backup
+cd auto-backup
+chmod +x backup_database.sh test_backup.sh install.sh
+```
+
+### 2. (Opcional) Rodar o instalador interativo
+```sh
+sudo ./install.sh
+```
+O `install.sh` cria os diretórios padrão (`/opt/sqlbackup`, `/var/log/sqlbackup`), gera um `.env` inicial e valida dependências. Se você já tem o `.env`, pode pular esta etapa.
+
+### 3. Configurar o rclone para o Google Drive (uma vez)
+```sh
 rclone config
+```
+Passos:
+- `n` (new remote)
+- name: `gdrive`
+- Storage: `Google Drive`
+- `client_id` / `client_secret`: em branco (ou usar os seus)
+- scope: **`1` (drive — Full access)** — necessário para acessar "Compartilhados comigo"
+- `root_folder_id`: cole o ID da pasta destino no Drive (peguei da URL `https://drive.google.com/drive/folders/<ID_AQUI>`)
+- `service_account_file`: em branco
+- Auto config: **`n`** (servidor sem GUI) — copie a URL exibida, abra em outro computador, autentique e cole o code de volta
+- Confirme o remote
 
-# Seguir os passos:
-# n) New remote
-# name> gdrive
-# Storage> 18 (Google Drive)
-# client_id> (deixe em branco - Enter)
-# client_secret> (deixe em branco - Enter)
-# scope> 1 (Full access)
-# root_folder_id> (deixe em branco - Enter)
-# service_account_file> (deixe em branco - Enter)
-# Edit advanced config? n
-# Use auto config? n (em servidor sem interface gráfica)
-IMPORTANTE: Como o servidor não tem interface gráfica, você precisará:
+Teste:
+```sh
+rclone lsf gdrive: --max-depth 1
+```
+Você deve enxergar o conteúdo da pasta apontada pelo `root_folder_id`.
 
-O rclone mostrará uma URL
-Copie essa URL
-Abra em um navegador no seu computador
-Faça login com sua conta Google
-Autorize o acesso
-Copie o código de verificação
-Cole no terminal do servidor
+### 4. Validar o ambiente
+```sh
+./test_backup.sh
+```
+O script verifica: presença de `.env`, permissões, containers rodando, conectividade com SQL Server, contagem de bancos, escrita nas pastas de backup, espaço em disco e configuração do rclone.
 
-bash# Continuar configuração
-# Configure this as a team drive? n
-# Yes this is OK? y
-# q) Quit config
-Testar conexão com Google Drive
-bash# Listar arquivos do Google Drive
-rclone ls gdrive:
+---
 
-# Criar pasta de teste
-rclone mkdir gdrive:Backups/MySQL
+## Configuração (.env)
 
-# Verificar se foi criada
-rclone lsd gdrive:Backups/
-3. Ajustar configurações no .env
-bashsudo nano config/.env
-env# Habilitar Google Drive
+Exemplo completo (ajuste para o seu ambiente):
+
+```sh
+# Diretórios
+BACKUP_BASE_DIR=/usr/local/var/www/auto-backup/backups/base_dados
+LOG_BASE_DIR=/usr/local/var/www/auto-backup/backups/logs
+LOG_RETENTION_DAYS=15
+
+# Google Drive (rclone)
 ENABLE_GDRIVE=true
-
-# Nome do remote (mesmo nome usado no rclone config)
 GDRIVE_REMOTE=gdrive
+# Vazio = envia direto para a raiz definida pelo root_folder_id do rclone
+GDRIVE_FOLDER=
 
-# Pasta no Google Drive
-GDRIVE_FOLDER=Backups/MySQL
+# Senhas do SA (uma por grupo de containers)
+SECRET_SHARED="/var/lib/docker/sqldata/secrets/master_pass"
+SECRET_DEDICATED="/var/lib/docker/sqldata/secrets/master_pass_dedicated"
 
-# Retenção local (dias)
-RETENTION_DAYS=15
+# Containers compartilhados (usam SECRET_SHARED)
+SHARED_CONTAINERS=(
+    sql-shared-01
+    sql-shared-02
+    sql-shared-03
+    sql-shared-04
+    sql-shared-05
+    sql-shared-06
+    sql-shared-07
+    sql-shared-08
+    sql-shared-09
+    sql-shared-10-homolog
+)
 
-# Retenção de logs (dias)
-LOG_RETENTION_DAYS=30
+# Containers dedicados (usam SECRET_DEDICATED)
+DEDICATED_CONTAINERS=(
+    sql-viacapi
+    sql-bonitoway
+    sql-apresentacaoinbuzios
+    sql-sve
+    sql-naturezatour
+    sql-ygarape
+    sql-roteirobonito
+)
+```
 
-🚀 Uso
-Modo Manual
-1. Backup completo (todos os bancos)
-bashcd /var/www/backups
-sudo ./backup_mysql.sh
-2. Listar bancos disponíveis
-bashsudo ./backup_mysql.sh --list
-3. Backup de banco específico
-bashsudo ./backup_mysql.sh --database nome_do_banco
-Modo Automático (Cronjob)
-Configurar execução diária às 3h
-bash# Editar crontab
-sudo crontab -e
+### Adicionar um novo container
+Basta acrescentar a linha na lista correta (`SHARED_CONTAINERS` ou `DEDICATED_CONTAINERS`). Nenhum script precisa ser alterado.
 
-# Adicionar linha:
-0 3 * * * /var/www/backups/backup_mysql.sh >> /var/www/backups/logs/cron.log 2>&1
-Outras opções de agendamento
-bash# Executar a cada 6 horas
-0 */6 * * * /var/www/backups/backup_mysql.sh
+### Mapeamento de pastas
+O script espera encontrar os arquivos gerados em:
+```
+${BACKUP_BASE_DIR}/<folder>/backup/backup_<db>.bak
+```
+onde `<folder>` é o nome do container sem o prefixo `sql-` (ex.: `sql-shared-03` → `shared-03`).
 
-# Executar às 2h e 14h todos os dias
-0 2,14 * * * /var/www/backups/backup_mysql.sh
+Garanta que cada container tenha um volume montando `/var/opt/mssql/backup` exatamente para `${BACKUP_BASE_DIR}/<folder>/backup` no host.
 
-# Executar apenas de segunda a sexta às 3h
-0 3 * * 1-5 /var/www/backups/backup_mysql.sh
-Verificar cronjobs ativos
-bashsudo crontab -l
+### Permissões
+```sh
+chmod 600 .env
+```
 
-📊 Monitoramento
-Visualizar logs em tempo real
-bash# Último log
-tail -f /var/www/backups/logs/backup_*.log
+---
 
-# Log específico
-tail -f /var/www/backups/logs/backup_20240121_0300.log
-Ver últimos backups criados
-bashls -lht /var/www/backups/base_dados/ | head -10
-Verificar espaço em disco
-bashdf -h /var/www/backups
-du -sh /var/www/backups/*
-Exemplo de log bem-sucedido
-[2024-01-21 03:00:01] [INFO] ==========================================
-[2024-01-21 03:00:01] [INFO] Iniciando processo de backup automático
-[2024-01-21 03:00:01] [INFO] ==========================================
-[2024-01-21 03:00:02] [INFO] Listando bancos de dados disponíveis...
-[2024-01-21 03:00:02] [INFO] Total de bancos encontrados: 5
-[2024-01-21 03:00:02] [INFO] Iniciando backup do banco: meu_site
-[2024-01-21 03:00:15] [INFO] Compactando backup: meu_site
-[2024-01-21 03:00:18] [SUCCESS] Backup concluído: meu_site (Tamanho: 45M)
-[2024-01-21 03:00:18] [INFO] Iniciando upload para Google Drive...
-[2024-01-21 03:00:25] [SUCCESS] Upload concluído: meu_site_20240121_0300.zip
-[2024-01-21 03:00:26] [INFO] Removendo backups locais com mais de 15 dias...
-[2024-01-21 03:00:26] [SUCCESS] Removidos 3 arquivo(s) antigo(s)
-[2024-01-21 03:00:26] [INFO] ==========================================
-[2024-01-21 03:00:26] [INFO] RELATÓRIO DE BACKUP - 2024-01-21 03:00:26
-[2024-01-21 03:00:26] [INFO] Total de bancos: 5
-[2024-01-21 03:00:26] [INFO] Sucessos: 5
-[2024-01-21 03:00:26] [INFO] Falhas: 0
-[2024-01-21 03:00:26] [INFO] ==========================================
+## Uso
 
-🔍 Solução de Problemas
-Problema: "Arquivo de configuração não encontrado"
-Solução:
-bash# Verificar se .env existe
-ls -la /var/www/backups/config/.env
+### Backup manual
+```sh
+./backup_database.sh
+```
 
-# Se não existir, criar
-sudo cp .env.example config/.env
-sudo nano config/.env
-Problema: "Falha ao conectar no MySQL"
-Soluções:
-bash# Testar conexão manualmente
-mysql -u seu_usuario -p -h localhost
+### Agendar via cron (exemplo: diariamente às 3h)
+```sh
+crontab -e
+```
+Adicione:
+```
+0 3 * * * /opt/auto-backup/backup_database.sh
+```
 
-# Verificar se usuário tem permissões
-mysql -u root -p
-GRANT SELECT, LOCK TABLES ON *.* TO 'seu_usuario'@'localhost';
-FLUSH PRIVILEGES;
-Problema: "rclone não está instalado"
-Solução:
-bash# Reinstalar rclone
-curl https://rclone.org/install.sh | sudo bash
-rclone version
-Problema: "Falha no upload para Google Drive"
-Soluções:
-bash# Testar conexão
-rclone ls gdrive:
+---
 
-# Se falhar, reconfigurar
-rclone config reconnect gdrive:
+## Como funciona
 
-# Verificar logs detalhados
-rclone copy arquivo.zip gdrive:Backups/MySQL -v
-Problema: Espaço em disco insuficiente
-Solução:
-bash# Verificar espaço
-df -h
+1. Carrega `.env` (lista de containers, senhas, destino do Drive).
+2. Para cada container rodando:
+   - Conecta no SQL Server via `sqlcmd` dentro do container.
+   - Lista bancos de usuário (`database_id > 4 AND state = 0`).
+   - Para cada banco: executa `BACKUP DATABASE [<db>] TO DISK = N'/var/opt/mssql/backup/backup_<db>.bak' WITH FORMAT, INIT, NAME = N'<db>-full';`
+   - `FORMAT + INIT` sobrescreve sempre o mesmo arquivo (mantém apenas 1 backup set).
+3. Após processar todos os containers, se `ENABLE_GDRIVE=true`:
+   - Para cada pasta de backup, envia `backup_*.bak` para `${GDRIVE_REMOTE}:${GDRIVE_FOLDER}`.
+   - Como todos os nomes são únicos (`backup_<db>.bak`), todos convivem em uma pasta única no Drive.
+4. Limpa logs com mais de `LOG_RETENTION_DAYS` dias.
+5. Imprime sumário (total / sucessos / falhas) e retorna exit code 0 ou 1.
 
-# Reduzir retenção no .env
-RETENTION_DAYS=7
+> **SQL Server Express não suporta compressão de backup** — por isso o script não usa `WITH COMPRESSION`.
 
-# Limpar manualmente backups antigos
-find /var/www/backups/base_dados -name "*.zip" -mtime +7 -delete
-Problema: Backup muito lento
-Otimizações:
-bash# Adicionar compressão mais rápida (no script, linha do zip)
-# Trocar: zip -q
-# Por: zip -1 -q  (compressão rápida)
+---
 
-# Usar mysqldump com compressão
-mysqldump ... | gzip > arquivo.sql.gz
+## Monitoramento
 
-📁 Estrutura de Arquivos
-/var/www/backups/
-├── backup_mysql.sh              # Script principal
-├── config/
-│   ├── .env                     # Configurações (NÃO versionar)
-│   └── .env.example             # Exemplo de configuração
-├── base_dados/                  # Backups locais temporários
-│   ├── banco1_20240121_0300.zip
-│   ├── banco2_20240121_0300.zip
+### Log da última execução
+```sh
+ls -t ${LOG_BASE_DIR}/backup_*.log | head -1 | xargs tail -f
+```
+
+### Ver erros / falhas
+```sh
+LOG=$(ls -t ${LOG_BASE_DIR}/backup_*.log | head -1)
+grep -E "ERROR|Falha" "$LOG"
+```
+
+### Conferir o que foi enviado ao Drive
+```sh
+rclone lsf gdrive: --max-depth 1 | grep backup_
+```
+
+### Tamanhos locais
+```sh
+du -h ${BACKUP_BASE_DIR}/*/backup/backup_*.bak 2>/dev/null
+```
+
+---
+
+## Solução de Problemas
+
+### "STATS parameter not within range"
+Resolvido. O script não usa mais `STATS = 0` (era inválido para o sqlcmd da versão atual).
+
+### Só o primeiro banco de cada container é processado
+Resolvido. `docker exec -i` consumia o stdin do `while read` do loop externo. Hoje as chamadas usam `docker exec` (sem `-i`) já que `-Q` não exige stdin.
+
+### "Falha no upload" para o Drive
+1. Veja o motivo real do rclone:
+   ```sh
+   rclone copy ${BACKUP_BASE_DIR}/<folder>/backup gdrive: --include "backup_*.bak" -vv
+   ```
+2. Verifique a config: `rclone config show gdrive`
+   - `scope` precisa ser `drive` (não `drive.file`) para acessar pasta "Compartilhada comigo"
+   - `root_folder_id` deve apontar para a pasta real (não para um atalho)
+3. Reautenticar:
+   ```sh
+   rclone config reconnect gdrive:
+   ```
+
+### Arquivos `.bak` antigos ainda no Drive
+Versões anteriores deste script geravam `<db>.bak` (sem prefixo). Esses arquivos permanecem no Drive até serem removidos manualmente. Para limpar:
+```sh
+rclone delete gdrive: --include "*.bak" --exclude "backup_*.bak" --dry-run
+# revise e rode sem --dry-run
+```
+
+### Container não está rodando
+O script ignora com WARN. Inicie o container:
+```sh
+docker start <nome-do-container>
+```
+
+### Falha na listagem de bancos (senha incorreta)
+O log mostra `ERROR Falha ao listar bancos em <container>`. Confira o conteúdo do arquivo apontado por `SECRET_SHARED` / `SECRET_DEDICATED` e teste manualmente:
+```sh
+docker exec <container> /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "<senha>" -C -Q "SELECT 1"
+```
+
+### Espaço em disco
+```sh
+df -h ${BACKUP_BASE_DIR}
+```
+Como cada banco mantém apenas um `.bak` (sobrescrito), o consumo não cresce com o tempo — só com o tamanho dos bancos.
+
+---
+
+## Estrutura de Arquivos
+
+```
+/opt/auto-backup/
+├── backup_database.sh        # Script principal
+├── test_backup.sh            # Validador do ambiente
+├── install.sh                # Instalador interativo (opcional)
+├── .env                      # Configuração (NÃO versionar — chmod 600)
+└── README.md
+
+${BACKUP_BASE_DIR}/           # Pastas montadas como volume nos containers
+├── shared-01/backup/
+│   ├── backup_DB1.bak
+│   └── backup_DB2.bak
+├── shared-02/backup/
 │   └── ...
-└── logs/                        # Logs de execução
-    ├── backup_20240121_0300.log
-    ├── backup_20240120_0300.log
-    └── cron.log
+└── viacapi/backup/
+    └── ...
 
-🔐 Segurança
-Boas práticas implementadas
+${LOG_BASE_DIR}/              # Logs de cada execução
+├── backup_20260601_0300.log
+├── backup_20260602_0300.log
+└── ...
 
-Credenciais em arquivo separado (.env)
-Permissões restritas (chmod 600)
-Logs sem senhas
-Conexão segura com MySQL
+Google Drive (root_folder_id):
+backup_DB1.bak
+backup_DB2.bak
+backup_OutroBanco.bak
+...                           # Tudo flat, sem subpastas
+```
 
-Recomendações adicionais
-bash# Criar usuário MySQL dedicado apenas para backups
-CREATE USER 'backup_user'@'localhost' IDENTIFIED BY 'senha_forte';
-GRANT SELECT, LOCK TABLES, SHOW VIEW, TRIGGER ON *.* TO 'backup_user'@'localhost';
-FLUSH PRIVILEGES;
+---
 
-📞 Suporte
-Comandos úteis de diagnóstico
-bash# Verificar status do MySQL
-sudo systemctl status mysql
+## Segurança
 
-# Ver processos MySQL ativos
-ps aux | grep mysql
-
-# Testar script em modo debug
-bash -x /var/www/backups/backup_mysql.sh --list
-
-🎯 Checklist de Instalação
-
- Instalou dependências (mysql-client, zip, rclone)
- Criou estrutura de diretórios
- Copiou script backup_mysql.sh
- Criou arquivo config/.env com credenciais
- Configurou permissões (chmod +x, chmod 600)
- Configurou rclone com Google Drive
- Testou backup manual
- Verificou upload no Google Drive
- Configurou cronjob
- Testou visualização de logs
-
-
-Versão: 1.0
-Última atualização: Janeiro 2024
+- `.env` com permissão `600`
+- Senhas do SA em arquivos separados (`SECRET_SHARED` / `SECRET_DEDICATED`), nunca em commit
+- Logs não imprimem senhas
+- Recomenda-se usar contas/credenciais distintas para cada grupo de containers
